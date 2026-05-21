@@ -88,3 +88,54 @@ def bridges(
                     next_frontier.append((nb, path + [nb]))
         frontier = next_frontier
     return []
+
+
+@dataclass(frozen=True)
+class NeighborhoodNode:
+    openalex_id: str
+    title: str | None
+    in_library: bool
+    distance: int
+
+
+def neighborhood(
+    conn: sqlite3.Connection,
+    zotero_key: str,
+    *,
+    depth: int = 1,
+) -> list[NeighborhoodNode]:
+    """Nodes within `depth` hops in either direction (excluding the center)."""
+    center = _resolve_zotero_key(conn, zotero_key)
+    visited: dict[str, int] = {center: 0}
+    frontier = {center}
+    for d in range(1, depth + 1):
+        next_frontier: set[str] = set()
+        if not frontier:
+            break
+        placeholders = ",".join("?" * len(frontier))
+        rows = conn.execute(
+            f"SELECT cited_id FROM edges WHERE citing_id IN ({placeholders}) "
+            f"UNION "
+            f"SELECT citing_id FROM edges WHERE cited_id IN ({placeholders})",
+            (*frontier, *frontier),
+        )
+        for (nb,) in rows:
+            if nb in visited:
+                continue
+            visited[nb] = d
+            next_frontier.add(nb)
+        frontier = next_frontier
+
+    results: list[NeighborhoodNode] = []
+    for oa_id, dist in visited.items():
+        if oa_id == center:
+            continue
+        row = conn.execute(
+            "SELECT title, zotero_key FROM nodes WHERE openalex_id=?", (oa_id,)
+        ).fetchone()
+        title, zk = row if row else (None, None)
+        results.append(NeighborhoodNode(
+            openalex_id=oa_id, title=title, in_library=zk is not None, distance=dist,
+        ))
+    results.sort(key=lambda n: (n.distance, n.openalex_id))
+    return results

@@ -86,3 +86,30 @@ def test_bridges_unknown_key_raises(graph):
     import pytest
     with pytest.raises(LookupError):
         queries.bridges(conn, "NOPE", "ALSO_NOPE")
+
+
+def test_neighborhood_depth_one(graph):
+    conn, add_node, add_edge = graph
+    add_node("L1", zotero_key="L1")
+    add_node("A"); add_node("B")
+    add_node("C", zotero_key="C")
+    add_edge("L1", "A")        # outgoing
+    add_edge("B", "L1")        # incoming
+    add_edge("L1", "C")        # outgoing to library
+    nb = queries.neighborhood(conn, "L1", depth=1)
+    ids = {n.openalex_id for n in nb}
+    assert ids == {"A", "B", "C"}
+    in_lib = {n.openalex_id for n in nb if n.in_library}
+    assert in_lib == {"C"}
+
+
+def test_neighborhood_depth_two(graph):
+    conn, add_node, add_edge = graph
+    add_node("L1", zotero_key="L1")
+    add_node("A"); add_node("B")
+    add_edge("L1", "A")
+    add_edge("A", "B")
+    nb1 = queries.neighborhood(conn, "L1", depth=1)
+    assert {n.openalex_id for n in nb1} == {"A"}
+    nb2 = queries.neighborhood(conn, "L1", depth=2)
+    assert {n.openalex_id for n in nb2} == {"A", "B"}
