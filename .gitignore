@@ -7,3 +7,19 @@ dist/
 build/
 *.sqlite
 *.sqlite-journal
+
+# Personal one-off scripts and data dumps — not part of the package
+/analyze_library.py
+/backfill_*.py
+/backfill_*.json
+/elab_*.py
+/elab_*.json
+/elab_*.log
+/graphene_*.py
+/graphene_*.json
+/find_*.py
+/fix_*.py
+/tag_*.py
+/terminal_items.py
+/title_matches.json
+/duplicates.json
