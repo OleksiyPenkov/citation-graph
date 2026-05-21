@@ -47,8 +47,11 @@ def sync(ctx, zotero_path: Path, mailto: str, refresh_age_days: int, full: bool)
     conn = db.open_db(ctx.obj["db_path"])
     client = OpenAlexClient(mailto=mailto, transport=_build_transport())
     try:
-        stats = puller.sync(conn, client, zotero_path,
-                            refresh_age_days=refresh_age_days, force_full=full)
+        stats = puller.sync(
+            conn, client, zotero_path,
+            refresh_age_days=refresh_age_days, force_full=full,
+            on_progress=lambda msg: click.echo(msg, err=True),
+        )
     finally:
         client.close()
         conn.close()
@@ -66,7 +69,10 @@ def pull_citations(ctx, zotero_key: str, mailto: str):
     client = OpenAlexClient(mailto=mailto, transport=_build_transport())
     try:
         try:
-            stats = puller.pull_citations_of(conn, client, zotero_key)
+            stats = puller.pull_citations_of(
+                conn, client, zotero_key,
+                on_progress=lambda msg: click.echo(msg, err=True),
+            )
         except LookupError as e:
             raise click.UsageError(str(e)) from None
     finally:

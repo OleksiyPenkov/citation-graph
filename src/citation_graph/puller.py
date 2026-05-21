@@ -5,9 +5,12 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable, Optional
 
 from . import db, zotero
 from .openalex import OpenAlexClient, Work
+
+ProgressFn = Optional[Callable[[str], None]]
 
 
 @dataclass
@@ -77,17 +80,23 @@ def sync(
     *,
     refresh_age_days: int = 30,
     force_full: bool = False,
+    on_progress: ProgressFn = None,
 ) -> SyncStats:
     """Walk Zotero DOIs, fetch from OpenAlex, write nodes + edges."""
     stats = SyncStats()
     max_age = timedelta(days=refresh_age_days)
+    progress = on_progress or (lambda _msg: None)
 
     ghost_ids: set[str] = set()
+    items = list(zotero.iter_items_with_dois(zotero_sqlite))
+    total = len(items)
+    progress(f"Phase 1: walking {total} Zotero items with DOIs...")
 
-    for zotero_key, doi in zotero.iter_items_with_dois(zotero_sqlite):
+    for i, (zotero_key, doi) in enumerate(items, start=1):
         stats.items_processed += 1
 
         # Has this item been fetched recently?
+        skipped = False
         if not force_full:
             row = conn.execute(
                 "SELECT openalex_id, fetched_at FROM nodes WHERE zotero_key=?",
@@ -95,53 +104,68 @@ def sync(
             ).fetchone()
             if row and _is_fresh(row[1], max_age):
                 stats.items_skipped_fresh += 1
-                continue
+                skipped = True
 
-        work = client.fetch_work_by_doi(doi)
-        if work is None:
-            _write_not_found(conn, doi, zotero_key)
-            stats.items_not_found += 1
-            continue
+        if not skipped:
+            work = client.fetch_work_by_doi(doi)
+            if work is None:
+                _write_not_found(conn, doi, zotero_key)
+                stats.items_not_found += 1
+            else:
+                _clear_notfound_sentinel(conn, zotero_key)
+                _write_work(conn, work, zotero_key=zotero_key)
+                stats.nodes_upserted += 1
 
-        _clear_notfound_sentinel(conn, zotero_key)
-        _write_work(conn, work, zotero_key=zotero_key)
-        stats.nodes_upserted += 1
+                for ref_id in work.referenced_works:
+                    # Skeleton row (ghost) — enriched in batch below.
+                    db.upsert_node(
+                        conn,
+                        openalex_id=ref_id,
+                        doi=None,
+                        zotero_key=None,
+                        title=None,
+                        year=None,
+                        venue=None,
+                        cited_by_count=None,
+                        raw_json=None,
+                    )
+                    db.upsert_edge(conn, work.openalex_id, ref_id)
+                    stats.edges_upserted += 1
 
-        for ref_id in work.referenced_works:
-            # Skeleton row (ghost) — enriched in batch below.
-            db.upsert_node(
-                conn,
-                openalex_id=ref_id,
-                doi=None,
-                zotero_key=None,
-                title=None,
-                year=None,
-                venue=None,
-                cited_by_count=None,
-                raw_json=None,
+                    # Only enrich nodes we don't already have content for.
+                    existing = conn.execute(
+                        "SELECT title FROM nodes WHERE openalex_id=?", (ref_id,)
+                    ).fetchone()
+                    if not existing or existing[0] is None:
+                        ghost_ids.add(ref_id)
+            conn.commit()
+
+        if i % 10 == 0 or i == total:
+            progress(
+                f"  {i}/{total} processed "
+                f"(fresh:{stats.items_skipped_fresh} "
+                f"fetched:{stats.nodes_upserted} "
+                f"404:{stats.items_not_found})"
             )
-            db.upsert_edge(conn, work.openalex_id, ref_id)
-            stats.edges_upserted += 1
-
-            # Only enrich nodes we don't already have content for.
-            existing = conn.execute(
-                "SELECT title FROM nodes WHERE openalex_id=?", (ref_id,)
-            ).fetchone()
-            if not existing or existing[0] is None:
-                ghost_ids.add(ref_id)
-
-        conn.commit()
 
     # Batch-enrich ghost nodes.
     if ghost_ids:
+        n_ghosts = len(ghost_ids)
+        progress(f"Phase 2: enriching {n_ghosts} ghost nodes (batches of 50)...")
+        enriched_count = 0
         for enriched in client.fetch_works_batch(sorted(ghost_ids)):
             _write_work(conn, enriched, zotero_key=None)
             stats.nodes_upserted += 1
             stats.enrichment_batches += 1
+            enriched_count += 1
+            if enriched_count % 50 == 0:
+                progress(f"  {enriched_count}/{n_ghosts} ghosts enriched")
         conn.commit()
+        progress(f"  {enriched_count}/{n_ghosts} ghosts enriched (done)")
 
     db.set_meta(conn, "last_full_sync_at", db.now_iso())
     conn.commit()
+    progress("Sync complete.")
     return stats
 
 
@@ -149,15 +173,19 @@ def pull_citations_of(
     conn: sqlite3.Connection,
     client: OpenAlexClient,
     zotero_key: str,
+    *,
+    on_progress: ProgressFn = None,
 ) -> SyncStats:
     """Walk OpenAlex /works?filter=cites:<id> for the given library item."""
     stats = SyncStats()
+    progress = on_progress or (lambda _msg: None)
     row = conn.execute(
         "SELECT openalex_id FROM nodes WHERE zotero_key=?", (zotero_key,)
     ).fetchone()
     if not row:
         raise LookupError(f"No graph node for zotero_key={zotero_key}; run sync first.")
     target_id = row[0]
+    progress(f"Walking citers of {target_id} (zotero_key={zotero_key})...")
 
     for citer in client.iter_cited_by(target_id):
         _write_work(conn, citer, zotero_key=None)
@@ -167,5 +195,7 @@ def pull_citations_of(
         # Persist incrementally — these passes can be long.
         if stats.edges_upserted % 100 == 0:
             conn.commit()
+            progress(f"  {stats.edges_upserted} citers added")
     conn.commit()
+    progress(f"Done. {stats.edges_upserted} citers added.")
     return stats
