@@ -41,7 +41,11 @@ def _normalise_doi(doi: Optional[str]) -> Optional[str]:
 
 
 def _parse(payload: dict) -> Work:
-    venue = (payload.get("host_venue") or {}).get("display_name")
+    # OpenAlex deprecated `host_venue` in favour of `primary_location.source` (2024).
+    # Prefer the new field; fall back for any older cached payloads.
+    primary = payload.get("primary_location") or {}
+    source = primary.get("source") or {}
+    venue = source.get("display_name") or (payload.get("host_venue") or {}).get("display_name")
     refs = [_short_id(r) for r in payload.get("referenced_works") or []]
     return Work(
         openalex_id=_short_id(payload["id"]),

@@ -31,6 +31,7 @@ def missing_high_value(
         JOIN nodes lib        ON lib.openalex_id = e.citing_id
         WHERE n.zotero_key IS NULL
           AND lib.zotero_key IS NOT NULL
+          AND (n.title IS NULL OR n.title != '[OpenAlex: unresolvable]')
         GROUP BY n.openalex_id
         HAVING k >= ?
         ORDER BY k DESC, n.cited_by_count DESC NULLS LAST

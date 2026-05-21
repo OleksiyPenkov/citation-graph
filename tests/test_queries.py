@@ -29,6 +29,20 @@ def test_missing_high_value_respects_min_citers(graph):
     assert len(queries.missing_high_value(conn, min_citers=1)) == 1
 
 
+def test_missing_high_value_excludes_unresolvable_ghosts(graph):
+    conn, add_node, add_edge = graph
+    for k in ("L1", "L2"):
+        add_node(k, zotero_key=k)
+    add_node("G1", title="Real ghost", cbc=10)
+    add_node("Gbad", title="[OpenAlex: unresolvable]", cbc=999)
+    for k in ("L1", "L2"):
+        add_edge(k, "G1")
+        add_edge(k, "Gbad")
+
+    results = queries.missing_high_value(conn, min_citers=2)
+    assert [r.openalex_id for r in results] == ["G1"]
+
+
 def test_missing_high_value_excludes_library_items(graph):
     conn, add_node, add_edge = graph
     add_node("L1", zotero_key="L1")
