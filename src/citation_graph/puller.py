@@ -21,6 +21,7 @@ class SyncStats:
     nodes_upserted: int = 0
     edges_upserted: int = 0
     enrichment_batches: int = 0
+    unresolvable_ghosts: int = 0
 
 
 def _is_fresh(fetched_at: str | None, max_age: timedelta) -> bool:
@@ -133,8 +134,10 @@ def sync(
                     stats.edges_upserted += 1
 
                     # Only enrich nodes we don't already have content for.
+                    # Use raw_json as the "have we fetched this?" signal — title can
+                    # legitimately be NULL for some OpenAlex works.
                     existing = conn.execute(
-                        "SELECT title FROM nodes WHERE openalex_id=?", (ref_id,)
+                        "SELECT raw_json FROM nodes WHERE openalex_id=?", (ref_id,)
                     ).fetchone()
                     if not existing or existing[0] is None:
                         ghost_ids.add(ref_id)
@@ -153,15 +156,30 @@ def sync(
         n_ghosts = len(ghost_ids)
         progress(f"Phase 2: enriching {n_ghosts} ghost nodes (batches of 50)...")
         enriched_count = 0
+        returned_ids: set[str] = set()
         for enriched in client.fetch_works_batch(sorted(ghost_ids)):
             _write_work(conn, enriched, zotero_key=None)
+            returned_ids.add(enriched.openalex_id)
             stats.nodes_upserted += 1
             stats.enrichment_batches += 1
             enriched_count += 1
             if enriched_count % 50 == 0:
                 progress(f"  {enriched_count}/{n_ghosts} ghosts enriched")
+        # IDs in referenced_works that OpenAlex no longer resolves (merged/deleted).
+        # Stamp them so we don't retry on every sync.
+        unresolved = ghost_ids - returned_ids
+        for oa_id in unresolved:
+            db.upsert_node(
+                conn, openalex_id=oa_id, doi=None, zotero_key=None,
+                title="[OpenAlex: unresolvable]", year=None, venue=None,
+                cited_by_count=None, raw_json=None,
+            )
+        stats.unresolvable_ghosts = len(unresolved)
         conn.commit()
-        progress(f"  {enriched_count}/{n_ghosts} ghosts enriched (done)")
+        progress(
+            f"  {enriched_count}/{n_ghosts} enriched, "
+            f"{len(unresolved)} unresolvable (done)"
+        )
 
     db.set_meta(conn, "last_full_sync_at", db.now_iso())
     conn.commit()
