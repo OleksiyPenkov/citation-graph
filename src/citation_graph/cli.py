@@ -52,12 +52,8 @@ def sync(ctx, zotero_path: Path, mailto: str, refresh_age_days: int, full: bool)
     finally:
         client.close()
         conn.close()
-    parts = [f"{k}={v}" for k, v in asdict(stats).items() if k != "errors"]
+    parts = [f"{k}={v}" for k, v in asdict(stats).items()]
     click.echo(" ".join(parts))
-    if stats.errors:
-        click.echo("errors:", err=True)
-        for e in stats.errors:
-            click.echo(f"  {e}", err=True)
 
 
 @main.command("pull-citations")
@@ -69,11 +65,14 @@ def pull_citations(ctx, zotero_key: str, mailto: str):
     conn = db.open_db(ctx.obj["db_path"])
     client = OpenAlexClient(mailto=mailto, transport=_build_transport())
     try:
-        stats = puller.pull_citations_of(conn, client, zotero_key)
+        try:
+            stats = puller.pull_citations_of(conn, client, zotero_key)
+        except LookupError as e:
+            raise click.UsageError(str(e)) from None
     finally:
         client.close()
         conn.close()
-    parts = [f"{k}={v}" for k, v in asdict(stats).items() if k != "errors"]
+    parts = [f"{k}={v}" for k, v in asdict(stats).items()]
     click.echo(" ".join(parts))
 
 
@@ -112,7 +111,10 @@ def bridges(ctx, key_a: str, key_b: str, max_depth: int, as_json: bool):
     """Shortest citation path between two Zotero items."""
     conn = db.open_db(ctx.obj["db_path"])
     try:
-        path = queries.bridges(conn, key_a, key_b, max_depth=max_depth)
+        try:
+            path = queries.bridges(conn, key_a, key_b, max_depth=max_depth)
+        except LookupError as e:
+            raise click.UsageError(str(e)) from None
     finally:
         conn.close()
     if as_json:
@@ -130,7 +132,10 @@ def neighborhood(ctx, zotero_key: str, depth: int, as_json: bool):
     """Papers within N hops of a Zotero item."""
     conn = db.open_db(ctx.obj["db_path"])
     try:
-        nb = queries.neighborhood(conn, zotero_key, depth=depth)
+        try:
+            nb = queries.neighborhood(conn, zotero_key, depth=depth)
+        except LookupError as e:
+            raise click.UsageError(str(e)) from None
     finally:
         conn.close()
     if as_json:

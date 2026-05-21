@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,7 +18,6 @@ class SyncStats:
     nodes_upserted: int = 0
     edges_upserted: int = 0
     enrichment_batches: int = 0
-    errors: list[str] = field(default_factory=list)
 
 
 def _is_fresh(fetched_at: str | None, max_age: timedelta) -> bool:
@@ -47,8 +46,17 @@ def _write_work(conn: sqlite3.Connection, work: Work, *, zotero_key: str | None)
     )
 
 
+def _clear_notfound_sentinel(conn: sqlite3.Connection, zotero_key: str) -> None:
+    """Delete any NOTFOUND sentinel row for this zotero_key so the real node can own it."""
+    conn.execute(
+        "DELETE FROM nodes WHERE zotero_key = ? AND openalex_id LIKE 'NOTFOUND:%'",
+        (zotero_key,),
+    )
+
+
 def _write_not_found(conn: sqlite3.Connection, doi: str, zotero_key: str) -> None:
     sentinel = f"NOTFOUND:{doi}"
+    _clear_notfound_sentinel(conn, zotero_key)
     db.upsert_node(
         conn,
         openalex_id=sentinel,
@@ -95,6 +103,7 @@ def sync(
             stats.items_not_found += 1
             continue
 
+        _clear_notfound_sentinel(conn, zotero_key)
         _write_work(conn, work, zotero_key=zotero_key)
         stats.nodes_upserted += 1
 

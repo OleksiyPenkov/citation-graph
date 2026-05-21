@@ -146,3 +146,26 @@ def test_clusters_ignores_ghost_nodes(graph):
     # For library-only subgraph: no. They should be two singletons.
     clusters = queries.clusters(conn)
     assert sorted(map(sorted, clusters)) == [["L1"], ["L2"]]
+
+
+def test_clusters_excludes_notfound_sentinels(graph):
+    """NOTFOUND sentinels have a zotero_key but must not appear in clusters."""
+    from citation_graph import db as cg_db
+    conn, add_node, add_edge = graph
+    # One real library node
+    add_node("W1", zotero_key="REAL0001")
+    # One NOTFOUND sentinel: openalex_id starts with NOTFOUND: but has a zotero_key
+    cg_db.upsert_node(
+        conn,
+        openalex_id="NOTFOUND:10.1/missing",
+        doi="10.1/missing",
+        zotero_key="MISS0001",
+        title="[OpenAlex: not found]",
+        year=None,
+        venue=None,
+        cited_by_count=None,
+        raw_json=None,
+    )
+    result = queries.clusters(conn)
+    # Should return exactly one component containing only the real node
+    assert result == [["REAL0001"]]

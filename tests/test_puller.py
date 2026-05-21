@@ -163,3 +163,41 @@ def test_pull_citations_of(tmp_path):
     assert citers == {("CITER1",), ("CITER2",)}
     assert added.nodes_upserted >= 2
     assert added.edges_upserted >= 2
+
+
+def test_sync_recovers_from_previous_notfound(tmp_path):
+    """Phase 1: 404 inserts NOTFOUND sentinel. Phase 2: success replaces it without IntegrityError."""
+    zpath = tmp_path / "z.sqlite"
+    _make_fake_zotero(zpath, {"AAAA1111": "10.1/recovering"})
+
+    # Phase 1: OpenAlex returns 404
+    transport1 = _fake_openalex({}, {})
+    gpath = tmp_path / "g.sqlite"
+    conn = db.open_db(gpath)
+    client1 = OpenAlexClient(mailto="t@x.com", transport=transport1, backoff_base=0.0)
+    stats1 = puller.sync(conn, client1, zpath, refresh_age_days=30, force_full=True)
+    assert stats1.items_not_found == 1
+    sentinel = conn.execute(
+        "SELECT openalex_id FROM nodes WHERE zotero_key='AAAA1111'"
+    ).fetchone()
+    assert sentinel is not None
+    assert sentinel[0].startswith("NOTFOUND:")
+
+    # Phase 2: OpenAlex now returns the real work — must not raise IntegrityError
+    work_by_doi = {"10.1/recovering": _work_payload("W99", doi="10.1/recovering", refs=[])}
+    transport2 = _fake_openalex(work_by_doi, {})
+    client2 = OpenAlexClient(mailto="t@x.com", transport=transport2, backoff_base=0.0)
+    stats2 = puller.sync(conn, client2, zpath, refresh_age_days=30, force_full=True)
+
+    # No error raised; real node now owns zotero_key
+    real_row = conn.execute(
+        "SELECT openalex_id FROM nodes WHERE zotero_key='AAAA1111'"
+    ).fetchone()
+    assert real_row is not None
+    assert real_row[0] == "W99"
+
+    # Sentinel is gone
+    leftover = conn.execute(
+        "SELECT openalex_id FROM nodes WHERE openalex_id LIKE 'NOTFOUND:%'"
+    ).fetchone()
+    assert leftover is None

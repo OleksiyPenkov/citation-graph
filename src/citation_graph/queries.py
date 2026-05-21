@@ -144,7 +144,10 @@ def neighborhood(
 def clusters(conn: sqlite3.Connection) -> list[list[str]]:
     """Connected components of the library-only subgraph, by Zotero key."""
     keys = [row[0] for row in conn.execute(
-        "SELECT zotero_key FROM nodes WHERE zotero_key IS NOT NULL ORDER BY zotero_key"
+        "SELECT zotero_key FROM nodes"
+        " WHERE zotero_key IS NOT NULL"
+        "   AND openalex_id NOT LIKE 'NOTFOUND:%'"
+        " ORDER BY zotero_key"
     )]
     if not keys:
         return []

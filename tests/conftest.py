@@ -19,4 +19,5 @@ def graph(tmp_path):
     def add_edge(a, b):
         db.upsert_edge(conn, a, b)
 
-    return conn, add_node, add_edge
+    yield conn, add_node, add_edge
+    conn.close()
