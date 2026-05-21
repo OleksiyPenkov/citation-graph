@@ -15,7 +15,7 @@ DEFAULT_DB = os.environ.get("CITATION_GRAPH_DB",
                              r"D:\Database\Zotero\citation_graph.sqlite")
 DEFAULT_ZOTERO = os.environ.get("ZOTERO_SQLITE",
                                  r"D:\Database\Zotero\zotero.sqlite")
-DEFAULT_MAILTO = os.environ.get("OPENALEX_MAILTO", "alex.penkov@gmail.com")
+DEFAULT_MAILTO = os.environ.get("OPENALEX_MAILTO", "citation-graph-user@example.com")
 
 
 def _tool_sync(db_path: str | None = None,

@@ -37,7 +37,7 @@ def main(ctx: click.Context, db_path: Path) -> None:
 @main.command()
 @click.option("--zotero", "zotero_path", type=click.Path(path_type=Path),
               default=DEFAULT_ZOTERO, show_default=True)
-@click.option("--mailto", default=os.environ.get("OPENALEX_MAILTO", "alex.penkov@gmail.com"),
+@click.option("--mailto", default=os.environ.get("OPENALEX_MAILTO", "citation-graph-user@example.com"),
               show_default=True)
 @click.option("--refresh-age-days", default=30, show_default=True, type=int)
 @click.option("--full", is_flag=True, help="Ignore freshness, refetch all items.")
@@ -61,7 +61,7 @@ def sync(ctx, zotero_path: Path, mailto: str, refresh_age_days: int, full: bool)
 
 @main.command("pull-citations")
 @click.argument("zotero_key")
-@click.option("--mailto", default=os.environ.get("OPENALEX_MAILTO", "alex.penkov@gmail.com"))
+@click.option("--mailto", default=os.environ.get("OPENALEX_MAILTO", "citation-graph-user@example.com"))
 @click.pass_context
 def pull_citations(ctx, zotero_key: str, mailto: str):
     """Pull reverse citations (papers citing this Zotero item)."""

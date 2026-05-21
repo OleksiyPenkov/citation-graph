@@ -6,9 +6,11 @@ No Docker, no LLM — just SQLite next to `zotero.sqlite`.
 ## Install
 
 ```bash
-cd D:\MultilayerLab\citation-graph
+git clone https://github.com/OleksiyPenkov/citation-graph
+cd citation-graph
 python -m venv .venv
-.venv\Scripts\pip install -e ".[dev]"
+.venv\Scripts\pip install -e ".[dev]"      # Windows
+# source .venv/bin/activate && pip install -e ".[dev]"   # macOS/Linux
 ```
 
 ## Usage
@@ -17,7 +19,8 @@ python -m venv .venv
 
 ```bash
 citation-graph sync
-# default: D:\Database\Zotero\zotero.sqlite -> D:\Database\Zotero\citation_graph.sqlite
+# Defaults to the local Zotero SQLite next to your Zotero data directory.
+# Override with --zotero-db / --graph-db or the env vars below.
 ```
 
 Re-running is incremental — items fetched within the last 30 days are
@@ -60,7 +63,7 @@ Environment variables (all optional):
 
 - `CITATION_GRAPH_DB` — graph DB path
 - `ZOTERO_SQLITE` — source Zotero DB path
-- `OPENALEX_MAILTO` — polite-pool email (default: `alex.penkov@gmail.com`)
+- `OPENALEX_MAILTO` — polite-pool email; set this so OpenAlex routes you to the faster polite pool.
 
 ## How it works
 
