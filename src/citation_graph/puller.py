@@ -134,3 +134,29 @@ def sync(
     db.set_meta(conn, "last_full_sync_at", db.now_iso())
     conn.commit()
     return stats
+
+
+def pull_citations_of(
+    conn: sqlite3.Connection,
+    client: OpenAlexClient,
+    zotero_key: str,
+) -> SyncStats:
+    """Walk OpenAlex /works?filter=cites:<id> for the given library item."""
+    stats = SyncStats()
+    row = conn.execute(
+        "SELECT openalex_id FROM nodes WHERE zotero_key=?", (zotero_key,)
+    ).fetchone()
+    if not row:
+        raise LookupError(f"No graph node for zotero_key={zotero_key}; run sync first.")
+    target_id = row[0]
+
+    for citer in client.iter_cited_by(target_id):
+        _write_work(conn, citer, zotero_key=None)
+        stats.nodes_upserted += 1
+        db.upsert_edge(conn, citer.openalex_id, target_id)
+        stats.edges_upserted += 1
+        # Persist incrementally — these passes can be long.
+        if stats.edges_upserted % 100 == 0:
+            conn.commit()
+    conn.commit()
+    return stats

@@ -119,3 +119,47 @@ def test_sync_records_missing_doi_as_sentinel(tmp_path):
     ).fetchone()
     assert row is not None
     assert row[0] == "[OpenAlex: not found]"
+
+
+def test_pull_citations_of(tmp_path):
+    zpath = tmp_path / "z.sqlite"
+    _make_fake_zotero(zpath, {"AAAA1111": "10.1/a"})
+
+    work_by_doi = {"10.1/a": _work_payload("W1", doi="10.1/a", refs=[])}
+
+    def handler(req):
+        path = req.url.path
+        if path.startswith("/works/doi:"):
+            return httpx.Response(200, json=work_by_doi["10.1/a"])
+        if path == "/works":
+            filt = req.url.params.get("filter", "")
+            if filt == "cites:W1":
+                cursor = req.url.params.get("cursor", "*")
+                if cursor == "*":
+                    return httpx.Response(200, json={
+                        "results": [_work_payload("CITER1", refs=["W1"])],
+                        "meta": {"next_cursor": "page2"},
+                    })
+                if cursor == "page2":
+                    return httpx.Response(200, json={
+                        "results": [_work_payload("CITER2", refs=["W1"])],
+                        "meta": {"next_cursor": None},
+                    })
+            if filt.startswith("openalex_id:"):
+                return httpx.Response(200, json={"results": [], "meta": {"count": 0}})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    gpath = tmp_path / "g.sqlite"
+    conn = db.open_db(gpath)
+    client = OpenAlexClient(mailto="t@x.com", transport=transport, backoff_base=0.0)
+
+    puller.sync(conn, client, zpath)
+    added = puller.pull_citations_of(conn, client, "AAAA1111")
+
+    citers = set(conn.execute(
+        "SELECT citing_id FROM edges WHERE cited_id='W1'"
+    ).fetchall())
+    assert citers == {("CITER1",), ("CITER2",)}
+    assert added.nodes_upserted >= 2
+    assert added.edges_upserted >= 2
