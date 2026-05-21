@@ -39,3 +39,52 @@ def missing_high_value(
         (min_citers, limit),
     )
     return [GhostHit(*row) for row in cur.fetchall()]
+
+
+def _resolve_zotero_key(conn: sqlite3.Connection, key: str) -> str:
+    row = conn.execute(
+        "SELECT openalex_id FROM nodes WHERE zotero_key=?", (key,)
+    ).fetchone()
+    if not row:
+        raise LookupError(f"No graph node for zotero_key={key}")
+    return row[0]
+
+
+def bridges(
+    conn: sqlite3.Connection,
+    key_a: str,
+    key_b: str,
+    *,
+    max_depth: int = 4,
+) -> list[str]:
+    """Shortest directed citation path between two Zotero items as a list of openalex_ids.
+
+    Returns [] if no path within max_depth.
+    """
+    src = _resolve_zotero_key(conn, key_a)
+    dst = _resolve_zotero_key(conn, key_b)
+    if src == dst:
+        return [src]
+
+    # BFS in Python — graph is small enough; SQL recursive CTE is harder to
+    # cap by depth portably.
+    frontier: list[tuple[str, list[str]]] = [(src, [src])]
+    seen = {src}
+    while frontier:
+        next_frontier: list[tuple[str, list[str]]] = []
+        for node, path in frontier:
+            if len(path) > max_depth:
+                continue
+            cur = conn.execute(
+                "SELECT cited_id FROM edges WHERE citing_id=?", (node,)
+            )
+            for (nb,) in cur:
+                if nb == dst:
+                    return path + [nb]
+                if nb in seen:
+                    continue
+                seen.add(nb)
+                if len(path) < max_depth:
+                    next_frontier.append((nb, path + [nb]))
+        frontier = next_frontier
+    return []

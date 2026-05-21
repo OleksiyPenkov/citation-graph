@@ -39,3 +39,50 @@ def test_missing_high_value_excludes_library_items(graph):
     add_edge("L2", "L3")
 
     assert queries.missing_high_value(conn, min_citers=2) == []
+
+
+def test_bridges_finds_direct_edge(graph):
+    conn, add_node, add_edge = graph
+    add_node("L1", zotero_key="L1")
+    add_node("L2", zotero_key="L2")
+    add_edge("L1", "L2")
+    path = queries.bridges(conn, "L1", "L2")
+    assert path == ["L1", "L2"]
+
+
+def test_bridges_finds_two_hop(graph):
+    conn, add_node, add_edge = graph
+    add_node("L1", zotero_key="L1")
+    add_node("L2", zotero_key="L2")
+    add_node("M")
+    add_edge("L1", "M")
+    add_edge("M", "L2")
+    assert queries.bridges(conn, "L1", "L2") == ["L1", "M", "L2"]
+
+
+def test_bridges_no_path_returns_empty(graph):
+    conn, add_node, add_edge = graph
+    add_node("L1", zotero_key="L1")
+    add_node("L2", zotero_key="L2")
+    assert queries.bridges(conn, "L1", "L2") == []
+
+
+def test_bridges_respects_max_depth(graph):
+    conn, add_node, add_edge = graph
+    add_node("L1", zotero_key="L1")
+    add_node("L2", zotero_key="L2")
+    chain = ["L1", "A", "B", "C", "D", "L2"]
+    for n in chain[1:-1]:
+        add_node(n)
+    for a, b in zip(chain, chain[1:]):
+        add_edge(a, b)
+    # 5 hops > default depth 4
+    assert queries.bridges(conn, "L1", "L2", max_depth=4) == []
+    assert queries.bridges(conn, "L1", "L2", max_depth=5) == chain
+
+
+def test_bridges_unknown_key_raises(graph):
+    conn, *_ = graph
+    import pytest
+    with pytest.raises(LookupError):
+        queries.bridges(conn, "NOPE", "ALSO_NOPE")
