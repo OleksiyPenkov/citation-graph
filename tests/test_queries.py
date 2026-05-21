@@ -113,3 +113,36 @@ def test_neighborhood_depth_two(graph):
     assert {n.openalex_id for n in nb1} == {"A"}
     nb2 = queries.neighborhood(conn, "L1", depth=2)
     assert {n.openalex_id for n in nb2} == {"A", "B"}
+
+
+def test_clusters_disconnected(graph):
+    conn, add_node, add_edge = graph
+    for k in ("A", "B", "C", "D"):
+        add_node(k, zotero_key=k)
+    add_edge("A", "B")  # A-B cluster
+    add_edge("C", "D")  # C-D cluster
+    clusters = queries.clusters(conn)
+    assert sorted(map(sorted, clusters)) == [["A", "B"], ["C", "D"]]
+
+
+def test_clusters_singleton_included(graph):
+    conn, add_node, add_edge = graph
+    add_node("A", zotero_key="A")
+    add_node("B", zotero_key="B")
+    add_edge("A", "B")
+    add_node("X", zotero_key="X")  # singleton
+    clusters = queries.clusters(conn)
+    assert sorted(map(sorted, clusters)) == [["A", "B"], ["X"]]
+
+
+def test_clusters_ignores_ghost_nodes(graph):
+    conn, add_node, add_edge = graph
+    add_node("L1", zotero_key="L1")
+    add_node("L2", zotero_key="L2")
+    add_node("G")  # ghost
+    add_edge("L1", "G")
+    add_edge("L2", "G")
+    # L1 and L2 share G but G is not in library → are they connected?
+    # For library-only subgraph: no. They should be two singletons.
+    clusters = queries.clusters(conn)
+    assert sorted(map(sorted, clusters)) == [["L1"], ["L2"]]

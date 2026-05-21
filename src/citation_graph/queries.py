@@ -139,3 +139,45 @@ def neighborhood(
         ))
     results.sort(key=lambda n: (n.distance, n.openalex_id))
     return results
+
+
+def clusters(conn: sqlite3.Connection) -> list[list[str]]:
+    """Connected components of the library-only subgraph, by Zotero key."""
+    keys = [row[0] for row in conn.execute(
+        "SELECT zotero_key FROM nodes WHERE zotero_key IS NOT NULL ORDER BY zotero_key"
+    )]
+    if not keys:
+        return []
+
+    # Build adjacency on the library-only subgraph.
+    adj: dict[str, set[str]] = {k: set() for k in keys}
+    rows = conn.execute(
+        """
+        SELECT a.zotero_key, b.zotero_key
+        FROM edges e
+        JOIN nodes a ON a.openalex_id = e.citing_id
+        JOIN nodes b ON b.openalex_id = e.cited_id
+        WHERE a.zotero_key IS NOT NULL AND b.zotero_key IS NOT NULL
+        """
+    )
+    for u, v in rows:
+        adj[u].add(v)
+        adj[v].add(u)
+
+    seen: set[str] = set()
+    components: list[list[str]] = []
+    for k in keys:
+        if k in seen:
+            continue
+        stack = [k]
+        comp: list[str] = []
+        while stack:
+            node = stack.pop()
+            if node in seen:
+                continue
+            seen.add(node)
+            comp.append(node)
+            stack.extend(adj[node] - seen)
+        components.append(sorted(comp))
+    components.sort(key=lambda c: (-len(c), c[0]))
+    return components
